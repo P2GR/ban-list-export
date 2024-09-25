@@ -22,28 +22,28 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-package net.runelite.client.plugins.banlistexport;
+package com.clan_ban_list_export;
 
-import java.util.List;
+import lombok.AllArgsConstructor;
 
+@AllArgsConstructor
+public enum ClanBanListExportDataFormat {
 
-/**
- * This class is used only to create a json object with clan name and clan members
- */
-public class ClanBanListExportWebRequestModel {
 
     /**
-     * The name of the clan
+     * Represent clan extract data in JSON format
      */
-    private String clanName;
+    JSON("JSON"),
 
     /**
-     * List of clan members
+     * Represent clan extract data in CSV format
      */
-    private List<ClanMemberMap> clanBanListMaps;
+    CSV("CSV");
 
-    public ClanBanListExportWebRequestModel(String clanName, List<ClanMemberMap> clanBanListExportWebRequestModels){
-        this.clanName = clanName;
-        this.clanBanListMaps =clanBanListExportWebRequestModels;
+    private final String name;
+
+    @Override
+    public String toString() {
+        return name;
     }
 }

@@ -23,7 +23,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package net.runelite.client.plugins.banlistexport;
+package com.clan_ban_list_export;
 
 import com.google.common.util.concurrent.Runnables;
 import net.runelite.client.game.chatbox.ChatboxPanelManager;

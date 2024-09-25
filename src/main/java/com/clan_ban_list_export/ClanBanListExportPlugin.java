@@ -23,7 +23,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package net.runelite.client.plugins.banlistexport;
+package com.clan_ban_list_export;
 
 import com.google.gson.Gson;
 import com.google.inject.Provides;
