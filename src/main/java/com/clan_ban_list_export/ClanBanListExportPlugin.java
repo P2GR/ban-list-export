@@ -72,18 +72,9 @@ public class ClanBanListExportPlugin extends Plugin
 	private static final int CLAN_SETTINGS_INFO_PAGE_WIDGET = 690;
 
 	private static final int CLAN_SETTINGS_BANS_LIST_WIDGET_ID = 689;
-	private static final int CLAN_SETTINGS_BANS_LIST_RSN_GROUP = WidgetInfo.PACK(689, 6);
-
-//	private static final int CLAN_SETTINGS_MEMBERS_PAGE_WIDGET_ID = 693;
-//	private static final int CLAN_SETTINGS_MEMBERS_LIST_RSN_COLUMN = WidgetInfo.PACK(CLAN_SETTINGS_MEMBERS_PAGE_WIDGET_ID, 10);
-//	private static final int CLAN_SETTINGS_MEMBERS_LIST_FIRST_COLUMN = WidgetInfo.PACK(CLAN_SETTINGS_MEMBERS_PAGE_WIDGET_ID, 11);
-//	private static final int CLAN_SETTINGS_MEMBERS_LIST_SECOND_COLUMN = WidgetInfo.PACK(CLAN_SETTINGS_MEMBERS_PAGE_WIDGET_ID, 13);
-//	private static final int CLAN_SETTINGS_MEMBERS_LIST_FIRST_DROP_DOWN = WidgetInfo.PACK(CLAN_SETTINGS_MEMBERS_PAGE_WIDGET_ID, 7);
-//	private static final int CLAN_SETTINGS_MEMBERS_LIST_SECOND_DROP_DOWN = WidgetInfo.PACK(CLAN_SETTINGS_MEMBERS_PAGE_WIDGET_ID, 8);
-
 
 	/**
-	 * The clan members, scraped from your clan setup widget
+	 * The ban list, scraped from your clan setup widget
 	 */
 	private List<ClanMemberMap> banListUser = null;
 
@@ -133,7 +124,7 @@ public class ClanBanListExportPlugin extends Plugin
 		this.banListUser.clear();
 
 		//Checks to set up scraping
-		Widget clanMemberNamesWidget = this.client.getWidget(CLAN_SETTINGS_BANS_LIST_RSN_GROUP);
+		Widget clanMemberNamesWidget = this.client.getWidget(689, 6);
 
         assert clanMemberNamesWidget != null;
         Widget[] clanMemberNamesWidgetValues = clanMemberNamesWidget.getChildren();
