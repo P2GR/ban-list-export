@@ -76,7 +76,7 @@ public interface ClanBanListExportConfig extends Config
 	@ConfigItem(
 			position = 5,
 			keyName = "dataInputUrl",
-			name = "URL to send Clan member export to.",
+			name = "URL to send Clan Ban List export to.",
 			description = ""
 	)
 	default String getDataUrl() {
