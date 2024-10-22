@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021, Bailey Townsend <baileytownsend2323@gmail.com>
+ * Copyright (c) 2024, P2GR
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,23 +26,37 @@
 package com.clan_ban_list_export;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.inject.Provides;
-
-import javax.inject.Inject;
-
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
+import net.runelite.api.FriendsChatMember;
+import net.runelite.api.events.FriendsChatMemberJoined;
+import net.runelite.api.events.ScriptCallbackEvent;
+import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.WidgetLoaded;
+import net.runelite.api.widgets.ComponentID;
 import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetInfo;
+import net.runelite.api.widgets.WidgetType;
+import net.runelite.client.callback.ClientThread;
+import net.runelite.client.chat.ChatColorType;
+import net.runelite.client.chat.ChatMessageBuilder;
+import net.runelite.client.chat.ChatMessageManager;
+import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.Text;
 import net.runelite.http.api.RuneLiteAPI;
 import okhttp3.*;
 
+import javax.inject.Inject;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
@@ -50,33 +64,53 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static net.runelite.http.api.RuneLiteAPI.JSON;
 
 @Slf4j
 @PluginDescriptor(
-	name = "Clan Ban List Export"
+	name = "Clan Ban List Enhanced"
 )
 public class ClanBanListExportPlugin extends Plugin
 {
 	@Inject
 	private Client client;
+
+	@Inject
+	private ClientThread clientThread;
+
+	@Inject
+	private EventBus eventBus;
+
 	@Inject
 	private ClanBanListExportConfig config;
+
 	@Inject
 	private ClanBanListExportChatMenuManager clanBanListExportChatMenuManager;
+
+	@Inject
+	private ChatMessageManager chatMessageManager;
+
 	@Inject
 	private OkHttpClient webClient;
+
 	private static final Gson GSON = RuneLiteAPI.GSON;
 
 	private static final int CLAN_SETTINGS_INFO_PAGE_WIDGET = 690;
 
+	private static final int CLAN_SIDEPANEL_DRAW = 4397;
+
 	private static final int CLAN_SETTINGS_BANS_LIST_WIDGET_ID = 689;
 
-	/**
-	 * The ban list, scraped from your clan setup widget
-	 */
 	private List<ClanMemberMap> banListUser = null;
+
+	private final List<String> importedUsernames = new ArrayList<>();
+
+	private ScheduledExecutorService scheduler;
+
 
 	@Provides
 	ClanBanListExportConfig provideConfig(ConfigManager configManager)
@@ -84,32 +118,225 @@ public class ClanBanListExportPlugin extends Plugin
 		return configManager.getConfig(ClanBanListExportConfig.class);
 	}
 
+	@Override
+	protected void startUp() throws Exception
+	{
+		if (scheduler == null || scheduler.isShutdown()) {
+			scheduler = Executors.newScheduledThreadPool(1);
+		}
+		scheduler.scheduleAtFixedRate(this::fetchClanMembersFromUrl, 0, 5, TimeUnit.MINUTES);
+
+		eventBus.register(this);
+
+	}
+
+
+	@Override
+	protected void shutDown() throws Exception
+	{
+		if (scheduler != null && !scheduler.isShutdown()) {
+			scheduler.shutdown();
+		}
+	}
+
+
+
 	@Subscribe
 	public void onWidgetLoaded(WidgetLoaded widget)
 	{
-
-		if (widget.getGroupId() == CLAN_SETTINGS_INFO_PAGE_WIDGET && config.getShowHelperText())
+		switch (widget.getGroupId())
 		{
-			log.info("ClanBanListExportPlugin: onWidgetLoaded: CLAN_SETTINGS_INFO_PAGE_WIDGET");
-			clanBanListExportChatMenuManager.update(ClanBanListExportChatMenuManager.WhatToShow.OPEN_BAN_SCREEN);
+			case CLAN_SETTINGS_INFO_PAGE_WIDGET:
+				if (config.getShowHelperText())
+				{
+					clanBanListExportChatMenuManager.update(ClanBanListExportChatMenuManager.WhatToShow.OPEN_BAN_SCREEN);
+				}
+				break;
+
+			case CLAN_SETTINGS_BANS_LIST_WIDGET_ID:
+				if (this.config.autoUpdateBanList()) {
+					this.SendClanMembersToUrl();
+				} else {
+					if (this.client.getWidget(689, 0) == null)
+					{
+						this.banListUser = null;
+					}
+					else
+					{
+						clanBanListExportChatMenuManager.update(ClanBanListExportChatMenuManager.WhatToShow.SHOW_EXPORT_OPTIONS);
+					}
+				}
+				break;
+
+			default:
+				break;
+		}
+	}
+
+
+	@Subscribe
+	public void onScriptCallbackEvent(ScriptCallbackEvent scriptCallbackEvent)
+	{
+		final String eventName = scriptCallbackEvent.getEventName();
+		if ("chatMessageBuilding".equals(eventName) && !config.getImportDataUrl().isEmpty()) {
+			highlightRedInCC();
+		}
+	}
+
+
+	@Subscribe
+	public void onScriptPostFired(ScriptPostFired event) {
+		if (event.getScriptId() == CLAN_SIDEPANEL_DRAW && !config.getImportDataUrl().isEmpty()) {
+			rebuildClanPanel();
+		}
+	}
+
+
+	@Subscribe
+	private void onFriendsChatMemberJoined(FriendsChatMemberJoined event)
+	{
+		if (config.getImportDataUrl().isEmpty()) {
+			return;
 		}
 
-		log.info(widget.getGroupId() + " " + CLAN_SETTINGS_BANS_LIST_WIDGET_ID);
+		FriendsChatMember member = event.getMember();
+		String memberUsername = Text.standardize(member.getName());
 
-		if (widget.getGroupId() == CLAN_SETTINGS_BANS_LIST_WIDGET_ID)
+		boolean isBanned = isBannedUser(memberUsername);
+
+		if (isBanned)
 		{
-			if (this.client.getWidget(689, 0) == null)
-			{
-				log.info("ClanBanListExportPlugin: onWidgetLoaded: CLAN_SETTINGS_MEMBERS_PAGE_WIDGET_ID: null");
-				this.banListUser = null;
+			highlightRedInCC();
+		}
+	}
+
+
+	public void rebuildClanPanel()
+	{
+		Widget containerWidget = client.getWidget(ComponentID.CLAN_MEMBERS);
+		if (containerWidget == null)
+		{
+			return;
+		}
+
+		Widget[] children = containerWidget.getChildren();
+		if (children == null)
+		{
+			return;
+		}
+
+		for (Widget child : children) {
+			if (child.getFontId() == -1 || child.getXTextAlignment() != 0) {
+				continue;
 			}
-			else
-			{
-				log.info("ClanBanListExportPlugin: onWidgetLoaded: CLAN_SETTINGS_MEMBERS_PAGE_WIDGET_ID");
-				clanBanListExportChatMenuManager.update(ClanBanListExportChatMenuManager.WhatToShow.SHOW_EXPORT_OPTIONS);
+
+			String name = Text.removeTags(child.getText());
+			String sanitized = Text.toJagexName(name);
+
+			if (isBannedUser(sanitized)) {
+				child.setText(ColorUtil.wrapWithColorTag(name, this.config.getPanelHightlightColor()));
+			} else {
+				child.setText(name);
 			}
 		}
 	}
+
+
+	/**
+	 *  Checks if a user is on the ban list
+	 */
+	private boolean isBannedUser(String username) {
+		synchronized (importedUsernames) {
+			for (String importedUsername : importedUsernames) {
+				importedUsername = Text.standardize(importedUsername);
+				username = Text.standardize(username);
+				if (username.equals(importedUsername)) {
+					return true;
+				}
+			}
+			return false;
+		}
+	}
+
+
+	/**
+	 *  Highlights banned users in the chat
+	 */
+	private void highlightRedInCC()
+	{
+		final String[] stringStack = client.getStringStack();
+		final int size = client.getStringStackSize();
+
+		if (size < 3) {
+			log.error("Attempted to write chat colors with a small stack: " + size);
+			return;
+		}
+
+		final String username = stringStack[size - 3];
+
+		if (username == null || username.isEmpty())
+		{
+			return;
+		}
+
+		String sanitizedUsername = sanitizeUsername(username);
+		boolean isBanned = isBannedUser(sanitizedUsername);
+
+		if (isBanned)
+		{
+			sendWarning(sanitizedUsername);
+			stringStack[size - 3] = ColorUtil.wrapWithColorTag(username, this.config.getHighlightColor());
+		}
+	}
+
+
+	/**
+	 * Sends a warning to our player, notifying them that a player is on a ban list
+	 */
+	private void sendWarning(String playerName)
+	{
+		final String url_message = new ChatMessageBuilder()
+				.append(ChatColorType.HIGHLIGHT)
+				.append("Warning! " + playerName + " is on the ban list!")
+				.build();
+
+		chatMessageManager.queue(
+				QueuedMessage.builder()
+						.type(ChatMessageType.CONSOLE)
+						.runeLiteFormattedMessage(url_message)
+						.build());
+	}
+
+
+	private void appendImportedUsernamesToWidget(Widget widget, List<String> usernames)
+	{
+		for (String username : usernames)
+		{
+			// Assuming the widget has a method to add text or children
+			Widget newWidget = widget.createChild(-1, WidgetType.TEXT);
+			newWidget.setText("Import: " + username);
+		}
+	}
+
+
+	/**
+	 *  Sanitizes the username to remove any tags that we don't need
+	 */
+	private String sanitizeUsername(String username) {
+
+		String sanitized = username;
+		if (sanitized.contains("<img")) {
+			sanitized = sanitized.replaceAll("<img=\\d*>", "");
+		}
+		if (sanitized.contains("<col")) {
+			sanitized = sanitized.replaceAll("<col=[\\w\\d]*>", "");
+		}
+		if (sanitized.contains("</col>")) {
+			sanitized = sanitized.replaceAll("</col>", "");
+		}
+		return sanitized;
+	}
+
 
 	/**
 	 * Subroutine - Update our memory of clan members and their ranks for
@@ -227,7 +454,7 @@ public class ClanBanListExportPlugin extends Plugin
 
 				final Request request = new Request.Builder()
 					.post(RequestBody.create(JSON, GSON.toJson(webRequestModel)))
-					.url(config.getDataUrl())
+					.url(config.getExportDataUrl())
 					.build();
 
 				webClient.newCall(request).enqueue(new Callback()
@@ -256,8 +483,67 @@ public class ClanBanListExportPlugin extends Plugin
 			catch (Exception e)
 			{
 				clanBanListExportChatMenuManager.update(ClanBanListExportChatMenuManager.WhatToShow.WEB_REQUEST_FAILED);
-
 			}
 		}
+	}
+
+
+	/**
+	 * Fetches clan members from the configured URL and stores the usernames.
+	 */
+	public void fetchClanMembersFromUrl()
+	{
+
+		String url = config.getImportDataUrl();
+		if (url.isEmpty())
+		{
+			log.warn("Import URL is not configured.");
+			return;
+		}
+
+		Request request = new Request.Builder()
+				.url(url)
+				.build();
+
+		webClient.newCall(request).enqueue(new Callback()
+		{
+			@Override
+			public void onFailure(Call call, IOException e)
+			{
+				log.error("Failed to fetch clan members from URL: " + url, e);
+			}
+
+			@Override
+			public void onResponse(Call call, Response response) throws IOException
+			{
+
+				if (!response.isSuccessful())
+				{
+					log.error("Failed to fetch clan members from URL: " + url + " - " + response.message());
+					return;
+				}
+
+				assert response.body() != null;
+				String responseBody = response.body().string();
+				JsonElement jsonElement = GSON.fromJson(responseBody, JsonElement.class);
+
+				if (jsonElement.isJsonObject()) {
+					JsonObject jsonObject = jsonElement.getAsJsonObject();
+					JsonArray usernamesArray = jsonObject.getAsJsonArray("usernames");
+					List<String> usernames = new ArrayList<>();
+					for (JsonElement element : usernamesArray)
+					{
+						usernames.add(element.getAsString());
+					}
+					synchronized (importedUsernames)
+					{
+						importedUsernames.clear();
+						importedUsernames.addAll(usernames);
+					}
+				} else {
+					log.error("Expected a JSON object but received: " + jsonElement);
+				}
+			}
+		});
 	}
 }

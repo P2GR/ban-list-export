@@ -28,15 +28,27 @@ package com.clan_ban_list_export;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.config.ConfigSection;
+
+import java.awt.*;
 
 @ConfigGroup("clan_ban_list_export")
 public interface ClanBanListExportConfig extends Config
 {
+
+	@ConfigSection(
+			name = "Export",
+			description = "Export settings",
+			position = 0
+	)
+	String exportSection = "exportSection";
+
 	@ConfigItem(
 			position = 0,
 			keyName = "dataInputFormat",
-			name = "Clan Ban List Export Data Format",
-			description = "The format of your clan mates"
+			name = "Data Format",
+			description = "The format of the exported data (ONLY FOR CLIPBOARD)",
+			section = exportSection
 	)
 	default ClanBanListExportDataFormat getDataExportFormat() {
 		return ClanBanListExportDataFormat.CSV;
@@ -46,7 +58,9 @@ public interface ClanBanListExportConfig extends Config
 			position = 1,
 			keyName = "exportToClipBoard",
 			name = "Export to clipboard",
-			description = "When viewing the clan's ban list in settings, copy info to clipboard."
+			description = "When viewing the clan's ban list in settings, copy info to clipboard.",
+			section = exportSection
+
 	)
 	default boolean exportToClipBoard() {
 		return true;
@@ -56,7 +70,9 @@ public interface ClanBanListExportConfig extends Config
 		position = 2,
 		keyName = "showHelperText",
 		name = "Show Helper Text",
-		description = "Turns off that pesky helper test that shows up."
+		description = "Turns off that helper test that shows up.",
+		section = exportSection
+
 	)
 	default boolean getShowHelperText() {
 		return true;
@@ -66,20 +82,66 @@ public interface ClanBanListExportConfig extends Config
 	@ConfigItem(
 			position = 4,
 			keyName = "updateWebRequest",
-			name = "Send export to a URL.",
-			description = "When viewing a clan members list can send to the listed url"
+			name = "Auto update Ban List",
+			description = "Automatically updates ban list when you open the clan settings.",
+			section = exportSection
+
 	)
-	default boolean getSendWebRequest() {
-		return false;
+	default boolean autoUpdateBanList() {
+		return true;
 	}
 
 	@ConfigItem(
 			position = 5,
 			keyName = "dataInputUrl",
-			name = "URL to send Clan Ban List export to.",
-			description = ""
+			name = "Export URL",
+			description = "",
+			section = exportSection
 	)
-	default String getDataUrl() {
+	default String getExportDataUrl() {
 		return "";
 	}
+
+
+	@ConfigSection(
+			name = "Import",
+			description = "Import settings",
+			position = 0
+	)
+	String importSection = "importSection";
+
+	@ConfigItem(
+			position = 1,
+			keyName = "dataInputUrl",
+			name = "Import URL",
+			description = "Allows for importing a ban list from a URL. This will function as an extension of the ban list.",
+			section = importSection
+	)
+	default String getImportDataUrl() {
+		return "";
+	}
+
+
+	@ConfigItem(
+			position = 2,
+			keyName = "highlightColor",
+			name = "Highlight color",
+			description = "Select the color to highlight banned users",
+			section = importSection
+	)
+	default Color getHighlightColor() {
+		return Color.RED;
+	}
+
+	@ConfigItem(
+			position = 2,
+			keyName = "panelhighlightcolor",
+			name = "Panel highlight color",
+			description = "Select the color to highlight banned users in the clan panel",
+			section = importSection
+	)
+	default Color getPanelHightlightColor() {
+		return Color.RED;
+	}
 }
+

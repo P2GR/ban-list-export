@@ -27,10 +27,9 @@ package com.clan_ban_list_export;
 
 import com.google.common.util.concurrent.Runnables;
 import net.runelite.client.game.chatbox.ChatboxPanelManager;
-
+import net.runelite.client.game.chatbox.ChatboxTextMenuInput;
 
 import javax.inject.Inject;
-import net.runelite.client.game.chatbox.ChatboxTextMenuInput;
 
 public class ClanBanListExportChatMenuManager
 {
@@ -101,14 +100,7 @@ public class ClanBanListExportChatMenuManager
 	private void addChoices(ChatboxTextMenuInput chatboxTextMenuInput)
 	{
 		chatboxTextMenuInput.option("1. Export to your clipboard.", this.plugin::ClanToClipBoard);
-		if (this.config.getSendWebRequest())
-		{
-			chatboxTextMenuInput.option("2. Export to the recorded URL.", this.plugin::SendClanMembersToUrl);
-			chatboxTextMenuInput.option("3. Cancel.", Runnables.doNothing());
-		}
-		else
-		{
-			chatboxTextMenuInput.option("2. Cancel.", Runnables.doNothing());
-		}
+		chatboxTextMenuInput.option("2. Export to the recorded URL.", this.plugin::SendClanMembersToUrl);
+		chatboxTextMenuInput.option("3. Cancel.", Runnables.doNothing());
 	}
 }
