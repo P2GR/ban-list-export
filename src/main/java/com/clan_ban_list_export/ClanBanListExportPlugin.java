@@ -47,10 +47,10 @@ import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
-import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.task.Schedule;
 import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.Text;
 import net.runelite.http.api.RuneLiteAPI;
@@ -61,12 +61,10 @@ import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import static net.runelite.http.api.RuneLiteAPI.JSON;
 
@@ -81,9 +79,6 @@ public class ClanBanListExportPlugin extends Plugin
 
 	@Inject
 	private ClientThread clientThread;
-
-	@Inject
-	private EventBus eventBus;
 
 	@Inject
 	private ClanBanListExportConfig config;
@@ -109,7 +104,6 @@ public class ClanBanListExportPlugin extends Plugin
 
 	private final List<String> importedUsernames = new ArrayList<>();
 
-	private ScheduledExecutorService scheduler;
 
 
 	@Provides
@@ -118,30 +112,26 @@ public class ClanBanListExportPlugin extends Plugin
 		return configManager.getConfig(ClanBanListExportConfig.class);
 	}
 
+
 	@Override
 	protected void startUp() throws Exception
 	{
-		if (scheduler == null || scheduler.isShutdown()) {
-			scheduler = Executors.newScheduledThreadPool(1);
-		}
-		scheduler.scheduleAtFixedRate(this::fetchClanMembersFromUrl, 0, 5, TimeUnit.MINUTES);
-
-		eventBus.register(this);
-
+		this.fetchClanMembersFromUrl();
 	}
-
 
 	@Override
 	protected void shutDown() throws Exception
 	{
-		if (scheduler != null && !scheduler.isShutdown()) {
-			scheduler.shutdown();
+		synchronized (importedUsernames) {
+			importedUsernames.clear();
+		}
+
+		if (banListUser != null) {
+			banListUser.clear();
 		}
 	}
 
-
-
-	@Subscribe
+    @Subscribe
 	public void onWidgetLoaded(WidgetLoaded widget)
 	{
 		switch (widget.getGroupId())
@@ -246,10 +236,10 @@ public class ClanBanListExportPlugin extends Plugin
 	 *  Checks if a user is on the ban list
 	 */
 	private boolean isBannedUser(String username) {
+		username = Text.standardize(username);
 		synchronized (importedUsernames) {
 			for (String importedUsername : importedUsernames) {
 				importedUsername = Text.standardize(importedUsername);
-				username = Text.standardize(username);
 				if (username.equals(importedUsername)) {
 					return true;
 				}
@@ -297,7 +287,7 @@ public class ClanBanListExportPlugin extends Plugin
 	{
 		final String url_message = new ChatMessageBuilder()
 				.append(ChatColorType.HIGHLIGHT)
-				.append("Warning! " + playerName + " is on the ban list!")
+				.append("[Ban List Enhanced]: Warning! " + playerName + " is on the ban list!")
 				.build();
 
 		chatMessageManager.queue(
@@ -491,6 +481,7 @@ public class ClanBanListExportPlugin extends Plugin
 	/**
 	 * Fetches clan members from the configured URL and stores the usernames.
 	 */
+	@Schedule(period = 5, unit = ChronoUnit.MINUTES)
 	public void fetchClanMembersFromUrl()
 	{
 
