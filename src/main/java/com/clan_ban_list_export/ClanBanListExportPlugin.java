@@ -25,32 +25,30 @@
 
 package com.clan_ban_list_export;
 
+import com.google.common.base.Strings;
 import com.google.gson.Gson;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.inject.Provides;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
-import net.runelite.api.FriendsChatMember;
-import net.runelite.api.events.FriendsChatMemberJoined;
-import net.runelite.api.events.ScriptCallbackEvent;
-import net.runelite.api.events.ScriptPostFired;
-import net.runelite.api.events.WidgetLoaded;
+import net.runelite.api.clan.ClanChannelMember;
+import net.runelite.api.events.*;
 import net.runelite.api.widgets.ComponentID;
 import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetType;
 import net.runelite.client.callback.ClientThread;
-import net.runelite.client.chat.ChatColorType;
-import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
 import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.game.WorldService;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.task.Schedule;
+import net.runelite.client.ui.JagexColors;
+import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.Text;
 import net.runelite.http.api.RuneLiteAPI;
@@ -61,10 +59,13 @@ import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 import static net.runelite.http.api.RuneLiteAPI.JSON;
 
@@ -90,9 +91,23 @@ public class ClanBanListExportPlugin extends Plugin
 	private ChatMessageManager chatMessageManager;
 
 	@Inject
-	private OkHttpClient webClient;
+	private ClanBanListExportOverlay clanBanListExportOverlay;
 
+	@Inject
+	private OverlayManager overlayManager;
+
+	@Inject
+	private WorldService worldService;
+
+	@Inject
+	private OkHttpClient webClient;
 	private static final Gson GSON = RuneLiteAPI.GSON;
+
+	@Getter
+	private final Map<String, BanDetails> banListMap = new HashMap<>();
+
+	@Getter
+	private HoveredPlayer hoveredPlayer;
 
 	private static final int CLAN_SETTINGS_INFO_PAGE_WIDGET = 690;
 
@@ -116,7 +131,15 @@ public class ClanBanListExportPlugin extends Plugin
 	@Override
 	protected void startUp() throws Exception
 	{
+		webClient = new OkHttpClient.Builder()
+				.connectTimeout(15, TimeUnit.SECONDS)
+				.readTimeout(15, TimeUnit.SECONDS)
+				.writeTimeout(15, TimeUnit.SECONDS)
+				.build();
+
 		this.fetchClanMembersFromUrl();
+		overlayManager.add(clanBanListExportOverlay);
+		fetchClanMembersFromUrl();
 	}
 
 	@Override
@@ -129,6 +152,9 @@ public class ClanBanListExportPlugin extends Plugin
 		if (banListUser != null) {
 			banListUser.clear();
 		}
+
+		overlayManager.remove(clanBanListExportOverlay);
+
 	}
 
     @Subscribe
@@ -164,44 +190,131 @@ public class ClanBanListExportPlugin extends Plugin
 	}
 
 
+	/**
+	 *  Event listener for when a player is hovered over in the clan chat.
+	 */
+	@Subscribe
+	public void onMenuEntryAdded(MenuEntryAdded event) {
+		if (this.config.highlightInClanPanel()){
+			int groupId = event.getActionParam1();
+
+			if (groupId == ComponentID.CLAN_MEMBERS || groupId == ComponentID.CLAN_GUEST_MEMBERS) {
+				String hoveredName = Text.toJagexName(Text.removeTags(event.getTarget()));
+				setHoveredBannedPlayer(hoveredName);
+			} else {
+				hoveredPlayer = null;
+			}
+		}
+	}
+
+	/**
+	 * Set the currently hovered banned player, if ban details exist for it.
+	 */
+	private void setHoveredBannedPlayer(String displayName)
+	{
+		hoveredPlayer = null;
+
+		if (!Strings.isNullOrEmpty(displayName))
+		{
+			final BanDetails banDetails = banListMap.get(Text.standardize(displayName));
+			if (banDetails != null)
+			{
+				hoveredPlayer = new HoveredPlayer(displayName, banDetails);
+			}
+		}
+	}
+
+	/**
+	 * Build a tooltip for the hovered player, showing their ban details.
+	 */
+	String buildTooltip(BanDetails banDetails) {
+		StringBuilder sb = new StringBuilder();
+		String date = banDetails.getDate();
+		if (!date.isEmpty()) {
+			date = formatDate(date);
+			sb.append("Date: ").append(ColorUtil.wrapWithColorTag(date, JagexColors.MENU_TARGET)).append("</br>");
+		}
+		String bannedBy = banDetails.getBannedBy();
+		if (!bannedBy.isEmpty()) {
+			sb.append("Banned by: ").append(ColorUtil.wrapWithColorTag(bannedBy, JagexColors.MENU_TARGET)).append("</br>");
+		}
+		String reason = formatReason(banDetails.getReason());
+		if (!reason.isEmpty()) {
+			sb.append("Reason: ").append(ColorUtil.wrapWithColorTag(reason, JagexColors.MENU_TARGET));
+		}
+		return sb.toString();
+	}
+
+	private String formatReason(String reason) {
+		StringBuilder formattedReason = new StringBuilder();
+		String[] words = reason.split(" ");
+		int lineLength = 0;
+
+		for (String word : words) {
+			if (lineLength + word.length() > 40) {
+				formattedReason.append("</br>");
+				lineLength = 0;
+			}
+			formattedReason.append(word).append(" ");
+			lineLength += word.length() + 1;
+		}
+
+		return formattedReason.toString().trim();
+	}
+
+
+	private String formatDate(String dateStr) {
+		OffsetDateTime dateTime = OffsetDateTime.parse(dateStr);
+		DateTimeFormatter formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withLocale(Locale.getDefault());
+		return dateTime.format(formatter);
+	}
+
+
 	@Subscribe
 	public void onScriptCallbackEvent(ScriptCallbackEvent scriptCallbackEvent)
 	{
-		final String eventName = scriptCallbackEvent.getEventName();
-		if ("chatMessageBuilding".equals(eventName) && !config.getImportDataUrl().isEmpty()) {
-			highlightRedInCC();
+		if (this.config.highlightInChat()){
+			final String eventName = scriptCallbackEvent.getEventName();
+			if ("chatMessageBuilding".equals(eventName) && !config.getImportDataUrl().isEmpty()) {
+				highlightRedInChat();
+			}
 		}
 	}
 
 
 	@Subscribe
 	public void onScriptPostFired(ScriptPostFired event) {
-		if (event.getScriptId() == CLAN_SIDEPANEL_DRAW && !config.getImportDataUrl().isEmpty()) {
-			rebuildClanPanel();
+		if (this.config.highlightInClanPanel()){
+			if (event.getScriptId() == CLAN_SIDEPANEL_DRAW && !config.getImportDataUrl().isEmpty()) {
+				highlightRedInClanPanel();
+			}
 		}
 	}
 
 
 	@Subscribe
-	private void onFriendsChatMemberJoined(FriendsChatMemberJoined event)
+	private void onClanMemberJoined(ClanMemberJoined event)
 	{
-		if (config.getImportDataUrl().isEmpty()) {
-			return;
-		}
+		if (this.config.sendWarning()) {
+			if (config.getImportDataUrl().isEmpty()) {
+				return;
+			}
 
-		FriendsChatMember member = event.getMember();
-		String memberUsername = Text.standardize(member.getName());
+			ClanChannelMember member = event.getClanMember();
+			String sanitizedUsername = sanitizeUsername(member.getName());
 
-		boolean isBanned = isBannedUser(memberUsername);
+			boolean isBanned = isBannedUser(sanitizedUsername);
 
-		if (isBanned)
-		{
-			highlightRedInCC();
+			if (isBanned)
+			{
+				sendWarning(sanitizedUsername);
+				highlightRedInChat();
+			}
 		}
 	}
 
 
-	public void rebuildClanPanel()
+	public void highlightRedInClanPanel()
 	{
 		Widget containerWidget = client.getWidget(ComponentID.CLAN_MEMBERS);
 		if (containerWidget == null)
@@ -231,28 +344,10 @@ public class ClanBanListExportPlugin extends Plugin
 		}
 	}
 
-
-	/**
-	 *  Checks if a user is on the ban list
-	 */
-	private boolean isBannedUser(String username) {
-		username = Text.standardize(username);
-		synchronized (importedUsernames) {
-			for (String importedUsername : importedUsernames) {
-				importedUsername = Text.standardize(importedUsername);
-				if (username.equals(importedUsername)) {
-					return true;
-				}
-			}
-			return false;
-		}
-	}
-
-
 	/**
 	 *  Highlights banned users in the chat
 	 */
-	private void highlightRedInCC()
+	private void highlightRedInChat()
 	{
 		final String[] stringStack = client.getStringStack();
 		final int size = client.getStringStackSize();
@@ -274,10 +369,23 @@ public class ClanBanListExportPlugin extends Plugin
 
 		if (isBanned)
 		{
-			sendWarning(sanitizedUsername);
 			stringStack[size - 3] = ColorUtil.wrapWithColorTag(username, this.config.getHighlightColor());
 		}
 	}
+
+
+	/**
+	 *  Checks if a user is on the ban list
+	 */
+	private boolean isBannedUser(String username) {
+		username = Text.standardize(username);
+		synchronized (banListMap) {
+			BanDetails banDetails = banListMap.get(username);
+            return banDetails != null;
+        }
+	}
+
+
 
 
 	/**
@@ -285,26 +393,46 @@ public class ClanBanListExportPlugin extends Plugin
 	 */
 	private void sendWarning(String playerName)
 	{
-		final String url_message = new ChatMessageBuilder()
-				.append(ChatColorType.HIGHLIGHT)
-				.append("[Ban List Enhanced]: Warning! " + playerName + " is on the ban list!")
-				.build();
 
-		chatMessageManager.queue(
-				QueuedMessage.builder()
-						.type(ChatMessageType.CONSOLE)
-						.runeLiteFormattedMessage(url_message)
-						.build());
-	}
+		final BanDetails banDetails = banListMap.get(Text.standardize(playerName));
+		final String title = ColorUtil.wrapWithColorTag("Ban List Enhanced", Color.green);
+
+		// Array of messages to be sent
+		List<String> messages = new ArrayList<>();
+
+		messages.add(String.format("[%s] %s '%s' is on the ban list!",
+				title,
+				ColorUtil.wrapWithColorTag("Warning:", ColorUtil.fromHex("#fa2327")),
+				playerName));
 
 
-	private void appendImportedUsernamesToWidget(Widget widget, List<String> usernames)
-	{
-		for (String username : usernames)
-		{
-			// Assuming the widget has a method to add text or children
-			Widget newWidget = widget.createChild(-1, WidgetType.TEXT);
-			newWidget.setText("Import: " + username);
+		if (this.config.showBanDate()) {
+			messages.add(String.format("[%s] %s %s",
+					title,
+					ColorUtil.wrapWithColorTag("Date:", JagexColors.MENU_TARGET),
+					formatDate(banDetails.getDate())));
+		}
+
+		if (this.config.showBannedBy()) {
+			messages.add(String.format("[%s] %s %s",
+					title,
+					ColorUtil.wrapWithColorTag("Banned by:", JagexColors.MENU_TARGET),
+					banDetails.getBannedBy()));
+		}
+
+		if (this.config.showReason()) {
+			messages.add(String.format("[%s] %s %s",
+					title,
+					ColorUtil.wrapWithColorTag("Reason:", JagexColors.MENU_TARGET),
+					banDetails.getReason()));
+		}
+
+		for (String message : messages) {
+			chatMessageManager.queue(
+					QueuedMessage.builder()
+							.type(ChatMessageType.CONSOLE)
+							.runeLiteFormattedMessage(message)
+							.build());
 		}
 	}
 
@@ -394,8 +522,7 @@ public class ClanBanListExportPlugin extends Plugin
 	 */
 	private String toCSV(List<ClanMemberMap> clanBanListMaps)
 	{
-		String result = "";
-
+		String result;
 		StringBuilder sb = new StringBuilder();
 
 		for (ClanMemberMap clanMember : clanBanListMaps)
@@ -419,7 +546,7 @@ public class ClanBanListExportPlugin extends Plugin
 	 */
 	private void clanMembersToClipBoard(String clipboardString)
 	{
-		if(this.banListUser.size() != 0)
+		if(!this.banListUser.isEmpty())
 		{
 			StringSelection stringSelection = new StringSelection(clipboardString);
 			Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
@@ -429,13 +556,11 @@ public class ClanBanListExportPlugin extends Plugin
 
 	/**
 	 * Exports clanmembers to remote url
-	 *
-	 * @return
 	 */
 	public void SendClanMembersToUrl()
 	{
 		this.scrapeMembers();
-		if(this.banListUser.size() != 0)
+		if(!this.banListUser.isEmpty())
 		{
 			try
 			{
@@ -477,7 +602,6 @@ public class ClanBanListExportPlugin extends Plugin
 		}
 	}
 
-
 	/**
 	 * Fetches clan members from the configured URL and stores the usernames.
 	 */
@@ -507,7 +631,6 @@ public class ClanBanListExportPlugin extends Plugin
 			@Override
 			public void onResponse(Call call, Response response) throws IOException
 			{
-
 				if (!response.isSuccessful())
 				{
 					log.error("Failed to fetch clan members from URL: " + url + " - " + response.message());
@@ -520,16 +643,17 @@ public class ClanBanListExportPlugin extends Plugin
 
 				if (jsonElement.isJsonObject()) {
 					JsonObject jsonObject = jsonElement.getAsJsonObject();
-					JsonArray usernamesArray = jsonObject.getAsJsonArray("usernames");
-					List<String> usernames = new ArrayList<>();
-					for (JsonElement element : usernamesArray)
-					{
-						usernames.add(element.getAsString());
-					}
-					synchronized (importedUsernames)
-					{
-						importedUsernames.clear();
-						importedUsernames.addAll(usernames);
+					JsonObject usersObject = jsonObject.getAsJsonObject("users");
+					synchronized (banListMap) {
+						banListMap.clear();
+						for (String key : usersObject.keySet()) {
+							JsonObject userObject = usersObject.getAsJsonObject(key);
+							String reason = userObject.get("reason").getAsString();
+							String bannedBy = userObject.get("bannedBy").getAsString();
+							String date = userObject.get("date").getAsString();
+							BanDetails details = new BanDetails(key, date, bannedBy, reason);
+							banListMap.put(Text.standardize(key), details);
+						}
 					}
 				} else {
 					log.error("Expected a JSON object but received: " + jsonElement);

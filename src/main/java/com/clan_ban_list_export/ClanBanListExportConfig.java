@@ -121,13 +121,82 @@ public interface ClanBanListExportConfig extends Config
 		return "";
 	}
 
+	@ConfigSection(
+			name = "Warning Message",
+			description = "Settings regarding the warning message",
+			position = 2
+	)
+	String warningSection = "warningSection";
+
+	@ConfigItem(
+			position = 0,
+			keyName = "showWarning",
+			name = "Send warning message",
+			description = "",
+			section = warningSection
+	)
+	default boolean sendWarning() {
+		return true;
+	}
+
+	@ConfigItem(
+			position = 1,
+			keyName = "showBanDate",
+			name = "Show ban date",
+			description = "Toggle the display of the ban date message",
+			section = warningSection
+	)
+	default boolean showBanDate() {
+		return true;
+	}
 
 	@ConfigItem(
 			position = 2,
+			keyName = "showBannedBy",
+			name = "Show banned by",
+			description = "Toggle the display of the banned by message",
+			section = warningSection
+	)
+	default boolean showBannedBy() {
+		return true;
+	}
+
+	@ConfigItem(
+			position = 3,
+			keyName = "showReason",
+			name = "Show reason",
+			description = "Toggle the display of the reason message",
+			section = warningSection
+	)
+	default boolean showReason() {
+		return true;
+	}
+
+
+	@ConfigSection(
+			name = "Highlighting",
+			description = "Settings regarding highlighting of the ban list",
+			position = 3
+	)
+	String highlightSection = "highlightSection";
+
+	@ConfigItem(
+			position = 0,
+			keyName = "highlightInChat",
+			name = "Highlight in chat",
+			description = "Highlight banned users in chat",
+			section = highlightSection
+	)
+	default boolean highlightInChat() {
+		return true;
+	}
+
+	@ConfigItem(
+			position = 1,
 			keyName = "highlightColor",
-			name = "Highlight color",
+			name = "Chat highlight color",
 			description = "Select the color to highlight banned users",
-			section = importSection
+			section = highlightSection
 	)
 	default Color getHighlightColor() {
 		return Color.RED;
@@ -135,13 +204,23 @@ public interface ClanBanListExportConfig extends Config
 
 	@ConfigItem(
 			position = 2,
+			keyName = "highlightInClanPanel",
+			name = "Highlight in clan panel",
+			description = "Highlight banned users in the clan overview panel",
+			section = highlightSection
+	)
+	default boolean highlightInClanPanel() {
+		return true;
+	}
+
+	@ConfigItem(
+			position = 3,
 			keyName = "panelhighlightcolor",
 			name = "Panel highlight color",
 			description = "Select the color to highlight banned users in the clan panel",
-			section = importSection
+			section = highlightSection
 	)
 	default Color getPanelHightlightColor() {
 		return Color.RED;
 	}
 }
-

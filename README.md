@@ -11,7 +11,9 @@ By importing bans using a GET request, you are able to have an extended ban list
 * Export to clipboard.
 * Send POST request to a web server with the bans.
 * Import bans using a GET request from a web server.
-
+* Import bans from a Google Sheet.
+* Highlight banned users in the chatbox & clan panel.
+* Receive notifications when a banned user joins the clan chat.
 
 ## How to: export to clipboard
 1. Once logged into the game open the Clan interface via Clan Chat channel 'Settings' button.
@@ -87,16 +89,36 @@ function doGet(e) {
     return ContentService.createTextOutput(`Sheet with name "${sheetName}" not found.`);
   }
 
-  // Define the starting row and column for reading data
+  // Define the starting row and manually select columns
   var startRow = 2; // Change this to the desired starting row
-  var startColumn = 1; // Change this to the desired starting column
+  var usernameColumn = 1; // Change this to the column number for usernames
+  var dateColumn = 2; // Change this to the column number for date
+  var bannedByColumn = 3; // Change this to the column number for banned_by
+  var reasonColumn = 4; // Change this to the column number for reason
+
   var numRows = sheet.getLastRow() - startRow + 1; // Number of rows to read
 
-  // Read the usernames from the specified range
-  var usernames = sheet.getRange(startRow, startColumn, numRows, 1).getValues().flat().filter(String);
+  // Read the data from the specified range
+  var usernames = sheet.getRange(startRow, usernameColumn, numRows, 1).getValues().flat();
+  var dates = sheet.getRange(startRow, dateColumn, numRows, 1).getValues().flat();
+  var bannedBy = sheet.getRange(startRow, bannedByColumn, numRows, 1).getValues().flat();
+  var reasons = sheet.getRange(startRow, reasonColumn, numRows, 1).getValues().flat();
 
-  // Return the usernames as a JSON array
-  var jsonResponse = JSON.stringify({ usernames: usernames });
+
+  // Create an object for each user with their corresponding data
+  var usersData = {};
+  usernames.forEach(function(username, index) {
+    if (username) { // Ensure username is not empty
+      usersData[username] = {
+        date: dates[index] || '',
+        bannedBy: bannedBy[index] || '',
+        reason: reasons[index] || ''
+      };
+    }
+  });
+
+  // Return the JSON response
+  var jsonResponse = JSON.stringify({ users: usersData });
   return ContentService.createTextOutput(jsonResponse).setMimeType(ContentService.MimeType.JSON);
 }
 ```
@@ -109,11 +131,18 @@ function doGet(e) {
 3. The endpoint should return a JSON array of usernames like this:
 ```json
 {
-  "usernames": [
-    "username1",
-    "username2",
-    "username3"
-  ]
+  "users": {
+    "username1": {
+      "date": "2025-03-25T23:00:00.000Z",
+      "bannedBy": "admin",
+      "reason": "reason1"
+    },
+    "username2": {
+      "date": "2025-03-25T23:00:00.000Z",
+      "bannedBy": "admin",
+      "reason": "reason2"
+    }
+  }
 }
 ```
 
