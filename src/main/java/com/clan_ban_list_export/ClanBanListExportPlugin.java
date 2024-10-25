@@ -115,6 +115,8 @@ public class ClanBanListExportPlugin extends Plugin
 
 	private static final int CLAN_SETTINGS_BANS_LIST_WIDGET_ID = 689;
 
+	private static final int CLAN_SETTINGS_BANS_LIST_GROUP_ID = 45154310;
+
 	private List<ClanMemberMap> banListUser = null;
 
 	private final List<String> importedUsernames = new ArrayList<>();
@@ -197,8 +199,7 @@ public class ClanBanListExportPlugin extends Plugin
 	public void onMenuEntryAdded(MenuEntryAdded event) {
 		if (this.config.highlightInClanPanel()){
 			int groupId = event.getActionParam1();
-
-			if (groupId == ComponentID.CLAN_MEMBERS || groupId == ComponentID.CLAN_GUEST_MEMBERS) {
+			if (groupId == ComponentID.CLAN_MEMBERS || groupId == ComponentID.CLAN_GUEST_MEMBERS || groupId == CLAN_SETTINGS_BANS_LIST_GROUP_ID ) {
 				String hoveredName = Text.toJagexName(Text.removeTags(event.getTarget()));
 				setHoveredBannedPlayer(hoveredName);
 			} else {
