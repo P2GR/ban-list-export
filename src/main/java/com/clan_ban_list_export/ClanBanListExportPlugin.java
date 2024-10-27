@@ -130,7 +130,7 @@ public class ClanBanListExportPlugin extends Plugin
 
 
 	@Override
-	protected void startUp() throws Exception
+	protected void startUp()
 	{
 		this.fetchClanMembersFromUrl();
 		overlayManager.add(clanBanListExportOverlay);
@@ -138,7 +138,7 @@ public class ClanBanListExportPlugin extends Plugin
 	}
 
 	@Override
-	protected void shutDown() throws Exception
+	protected void shutDown()
 	{
 		synchronized (importedUsernames) {
 			importedUsernames.clear();
@@ -575,7 +575,7 @@ public class ClanBanListExportPlugin extends Plugin
 					}
 
 					@Override
-					public void onResponse(Call call, Response response) throws IOException
+					public void onResponse(Call call, Response response)
 					{
 						if (response.isSuccessful())
 						{
