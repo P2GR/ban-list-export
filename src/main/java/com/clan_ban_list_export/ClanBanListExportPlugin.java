@@ -65,7 +65,6 @@ import java.time.format.FormatStyle;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 import static net.runelite.http.api.RuneLiteAPI.JSON;
 
@@ -133,12 +132,6 @@ public class ClanBanListExportPlugin extends Plugin
 	@Override
 	protected void startUp() throws Exception
 	{
-		webClient = new OkHttpClient.Builder()
-				.connectTimeout(15, TimeUnit.SECONDS)
-				.readTimeout(15, TimeUnit.SECONDS)
-				.writeTimeout(15, TimeUnit.SECONDS)
-				.build();
-
 		this.fetchClanMembersFromUrl();
 		overlayManager.add(clanBanListExportOverlay);
 		fetchClanMembersFromUrl();
